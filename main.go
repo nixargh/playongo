@@ -19,37 +19,53 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-type Song struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Artist string `json:"artist,omitempty"`
-	Album  string `json:"album,omitempty"`
-	Path   string `json:"path"`
-}
+var version string = "0.2.0"
 
 var musicDir string
 var static string = "/static/"
 var db sql.DB
-var songs []Song
+var songs []song
 
-func GetSongEndpoint(w http.ResponseWriter, req *http.Request) {
+type song struct {
+	ID       string       `json:"id,omitempty"`
+	Name     string       `json:"name,omitempty"`
+	Artist   string       `json:"artist,omitempty"`
+	Album    string       `json:"album,omitempty"`
+	Genre    string       `json:"genre,omitempty"`
+	Year     int          `json:"year,omitempty"`
+	Format   tag.Format   `json:"format,omitempty"`
+	FileType tag.FileType `json:"filetype,omitempty"`
+	Path     string       `json:"path,omitempty"`
+}
+
+func getSongByID(w http.ResponseWriter, req *http.Request) {
 	params := mux.Vars(req)
-	fmt.Printf("Requested: %q.\n", params)
-	for _, song := range getSongs() {
-		if song.ID == params["id"] {
-			fmt.Printf("Found song: %q.\n", song)
-			json.NewEncoder(w).Encode(song)
-			return
-		}
+	id := params["id"]
+	fmt.Printf("Requested ID: %q.\n", id)
+	songs := getSongs("ID", id)
+	for _, song := range songs {
+		fmt.Printf("Found song: %q.\n", song)
+		json.NewEncoder(w).Encode(song)
 	}
-	json.NewEncoder(w).Encode(&Song{})
+	json.NewEncoder(w).Encode(&song{})
 }
 
-func GetSongsEndpoint(w http.ResponseWriter, req *http.Request) {
-	json.NewEncoder(w).Encode(getSongs())
+func getSongByAttribute(w http.ResponseWriter, req *http.Request) {
+	params := mux.Vars(req)
+	fmt.Printf("Requested attribute: %q.\n", params)
+	songs := getSongs(params["attribute"], params["value"])
+	for _, song := range songs {
+		fmt.Printf("Found song: %q.\n", song)
+		json.NewEncoder(w).Encode(song)
+	}
+	json.NewEncoder(w).Encode(&song{})
 }
 
-func ReadFileMeta(file string) (string, tag.Metadata) {
+func getSongEndpoint(w http.ResponseWriter, req *http.Request) {
+	json.NewEncoder(w).Encode(getSongs("", ""))
+}
+
+func readFilMetadata(file string) (string, tag.Metadata) {
 	var metadata tag.Metadata
 
 	fmt.Printf("______\nReading file metadata: %q.\n", file)
@@ -76,21 +92,25 @@ func ReadFileMeta(file string) (string, tag.Metadata) {
 	return md5sum, metadata
 }
 
-func MusicWalk(path string, info os.FileInfo, err error) error {
+func musicWalk(path string, info os.FileInfo, err error) error {
 	if !info.IsDir() {
 		relativePath := filepath.Clean(strings.Replace(path, musicDir, static, 1))
 		relativePathNoSpaces := strings.Replace(relativePath, " ", "%20", -1)
 
-		md5sum, metadata := ReadFileMeta(path)
+		md5sum, metadata := readFilMetadata(path)
 		if metadata != nil {
-			fmt.Printf("Song ID: %q.\n", md5sum)
-			fmt.Printf("Song name: %q.\n", metadata.Title())
-			addSong(Song{
-				ID:     md5sum,
-				Name:   metadata.Title(),
-				Artist: metadata.Artist(),
-				Album:  metadata.Album(),
-				Path:   relativePathNoSpaces})
+			fmt.Printf("song ID: %q.\n", md5sum)
+			fmt.Printf("song name: %q.\n", metadata.Title())
+			addSong(song{
+				ID:       md5sum,
+				Name:     metadata.Title(),
+				Artist:   metadata.Artist(),
+				Album:    metadata.Album(),
+				Genre:    metadata.Genre(),
+				Year:     metadata.Year(),
+				Format:   metadata.Format(),
+				FileType: metadata.FileType(),
+				Path:     relativePathNoSpaces})
 		} else {
 			fmt.Printf("Empty metadata: %q.\n", path)
 		}
@@ -99,19 +119,20 @@ func MusicWalk(path string, info os.FileInfo, err error) error {
 	return nil
 }
 
-func ScanMedia() {
+func scanMedia() {
 	fmt.Printf("Scanning directory: '%s'.\n", musicDir)
 
-	filepath.Walk(musicDir, MusicWalk)
+	filepath.Walk(musicDir, musicWalk)
 }
 
-func RunRouter() {
+func runRouter() {
 	fmt.Printf("Running media server. Static directory: '%s'.\n", musicDir)
 
 	// Create HTTP router
 	router := mux.NewRouter()
-	router.HandleFunc("/songs", GetSongsEndpoint).Methods("GET")
-	router.HandleFunc("/songs/{id}", GetSongEndpoint).Methods("GET")
+	router.HandleFunc("/songs", getSongEndpoint).Methods("GET")
+	router.HandleFunc("/songs/{id}", getSongByID).Methods("GET")
+	router.HandleFunc("/songs/{attribute}/{value}", getSongByAttribute).Methods("GET")
 
 	// This will serve files under http://localhost:8000/static/<filename>
 	router.PathPrefix(static).Handler(http.StripPrefix(static, http.FileServer(http.Dir(musicDir))))
@@ -119,59 +140,91 @@ func RunRouter() {
 	log.Fatal(http.ListenAndServe(":12345", router))
 }
 
-func InitDatabase(file string) sql.DB {
+func initDatabase(file string) sql.DB {
 	database, err := sql.Open("sqlite3", file)
 	checkErr(err)
 	return *database
 }
 
 func createTable() {
-	sql_table := `
+	query := `
 	CREATE TABLE IF NOT EXISTS songs (
 		ID VARCHAR(64) NOT NULL PRIMARY KEY,
 		Name VARCHAR(64) NOT NULL,
 		Artist VARCHAR(64) NULL,
 		Album VARCHAR(64) NULL,
+		Genre VARCHAR(64) NULL,
+		Year VARCHAR(64) NULL,
+		Format VARCHAR(64) NULL,
+		FileType VARCHAR(64) NULL,
 		Path VARCHAR(64) NOT NULL);
 	`
 
-	_, err := db.Exec(sql_table)
+	_, err := db.Exec(query)
 	checkErr(err)
 }
 
-func addSong(song Song) {
-	sql_additem := `
+func addSong(song song) {
+	query := `
 	INSERT OR REPLACE INTO songs(
 		ID,
 		Name,
 		Artist,
 		Album,
+		Genre,
+		Year,
+		Format,
+		FileType,
 		Path
-	) values(?, ?, ?, ?, ?)
+	) values(?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	stmt, err := db.Prepare(sql_additem)
+	stmt, err := db.Prepare(query)
 	checkErr(err)
 
 	defer stmt.Close()
 
-	_, err2 := stmt.Exec(song.ID, song.Name, song.Artist, song.Album, song.Path)
+	_, err2 := stmt.Exec(
+		song.ID,
+		song.Name,
+		song.Artist,
+		song.Album,
+		song.Genre,
+		song.Year,
+		song.Format,
+		song.FileType,
+		song.Path)
 	checkErr(err2)
 }
 
-func getSongs() []Song {
-	sql_readall := `
-	SELECT ID, Name, Artist, Album, Path FROM songs
-	`
+func getSongs(attribute string, value string) []song {
+	fmt.Printf("Quering for songs with attribute %q and value %q.\n", attribute, value)
+	var query string
 
-	rows, err := db.Query(sql_readall)
+	if attribute == "" {
+		query = "SELECT ID, Name, Artist, Album, Genre, Year, Format, FileType, Path FROM songs;"
+	} else {
+		query = fmt.Sprintf("SELECT ID, Name, Artist, Album, Genre, Year, Format, FileType, Path FROM songs where %s='%s'", attribute, value)
+	}
+
+	rows, err := db.Query(query)
 	checkErr(err)
 	defer rows.Close()
 
-	var result []Song
+	var result []song
+
 	for rows.Next() {
-		song := Song{}
-		err2 := rows.Scan(&song.ID, &song.Name, &song.Artist, &song.Album, &song.Path)
+		song := song{}
+		err2 := rows.Scan(
+			&song.ID,
+			&song.Name,
+			&song.Artist,
+			&song.Album,
+			&song.Genre,
+			&song.Year,
+			&song.Format,
+			&song.FileType,
+			&song.Path)
 		checkErr(err2)
 		result = append(result, song)
 	}
@@ -195,12 +248,12 @@ func main() {
 	flag.Parse()
 
 	// Assign initiated DB to global var
-	db = InitDatabase(database)
+	db = initDatabase(database)
 	createTable()
 
 	if scan {
-		ScanMedia()
+		scanMedia()
 	} else {
-		RunRouter()
+		runRouter()
 	}
 }

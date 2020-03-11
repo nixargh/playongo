@@ -19,3 +19,6 @@
 
 # compiled binary
 playongo
+
+# vim
+*.sw?

@@ -18,11 +18,15 @@ Start HTTP server:
 ## Test
 Get songs list:
 
-`curl http://localhost:12345/songs`
+`curl -s http://localhost:12345/songs | jq .`
 
 Choose some and request it by ID:
 
-`curl http://localhost:12345/songs/478e442ab8450fce9d5ad01b9535327d`
+`curl -s http://localhost:12345/songs/478e442ab8450fce9d5ad01b9535327d |jq .`
+
+Look for all songs of album (or any other attribute):
+
+`curl -s http://localhost:12345/songs/album/Skald | jq .`
 
 Download:
 
