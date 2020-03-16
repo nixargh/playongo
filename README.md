@@ -11,6 +11,8 @@ Scan library:
 
 `./playongo -musicDir ~/Music -scan`
 
+Scan reads files metadata using goroutines (multiple threads), so read threads number and speed of reading depends on number of cores. By default Go limits the number of OS thread using **GOMAXPROCS** variable, which by default is equals to the number of cores.
+
 Start HTTP server:
 
 `./playongo -musicDir ~/Music`
