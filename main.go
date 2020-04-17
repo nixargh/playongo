@@ -37,6 +37,7 @@ type song struct {
 	Format   tag.Format   `json:"format,omitempty"`
 	FileType tag.FileType `json:"filetype,omitempty"`
 	Path     string       `json:"path,omitempty"`
+	Size     int64
 }
 
 // Router part
@@ -61,9 +62,9 @@ func getSongs(attribute string, value string) []song {
 	var query string
 
 	if attribute == "" {
-		query = "SELECT ID, Name, Artist, Album, Genre, Year, Format, FileType, Path FROM songs;"
+		query = "SELECT ID, Name, Artist, Album, Genre, Year, Format, FileType, Path, Size FROM songs;"
 	} else {
-		query = fmt.Sprintf("SELECT ID, Name, Artist, Album, Genre, Year, Format, FileType, Path FROM songs where %s='%s'", attribute, value)
+		query = fmt.Sprintf("SELECT ID, Name, Artist, Album, Genre, Year, Format, FileType, Path, Size FROM songs where %s='%s'", attribute, value)
 	}
 
 	rows, err := db.Query(query)
@@ -83,7 +84,8 @@ func getSongs(attribute string, value string) []song {
 			&song.Year,
 			&song.Format,
 			&song.FileType,
-			&song.Path)
+			&song.Path,
+			&song.Size)
 		checkErr(err2)
 		result = append(result, song)
 	}
@@ -155,7 +157,7 @@ func readMeta(path string, wg *sync.WaitGroup, mux *sync.Mutex) {
 	relativePath := filepath.Clean(strings.Replace(path, musicDir, static, 1))
 	relativePathNoSpaces := strings.Replace(relativePath, " ", "%20", -1)
 
-	md5sum, metadata := readFilMetadata(path)
+	md5sum, metadata, file_size := readFileMetadata(path)
 	if metadata != nil {
 		fmt.Printf("song ID: %q.\n", md5sum)
 		fmt.Printf("song name: %q.\n", metadata.Title())
@@ -170,19 +172,23 @@ func readMeta(path string, wg *sync.WaitGroup, mux *sync.Mutex) {
 			Year:     metadata.Year(),
 			Format:   metadata.Format(),
 			FileType: metadata.FileType(),
-			Path:     relativePathNoSpaces})
+			Path:     relativePathNoSpaces,
+			Size:     file_size})
 		mux.Unlock()
 	} else {
 		fmt.Printf("Empty metadata: %q.\n", path)
 	}
 }
 
-func readFilMetadata(file string) (string, tag.Metadata) {
+func readFileMetadata(file string) (string, tag.Metadata, int64) {
 	var metadata tag.Metadata
 
-	fmt.Printf("______\nReading file metadata: %q.\n", file)
+	fmt.Printf("Reading file metadata: %q. ", file)
 
 	f, err := os.Open(file)
+    file_stat, err := f.Stat()
+    file_size := file_stat.Size()
+    fmt.Printf(" Size: %v ", file_size)
 	if err != nil {
 		fmt.Printf("Error loading file: %q.\n", err)
 	}
@@ -200,8 +206,9 @@ func readFilMetadata(file string) (string, tag.Metadata) {
 		log.Fatal(err)
 	}
 	md5sum := hex.EncodeToString(h.Sum(nil))
+    fmt.Printf("\n")
 
-	return md5sum, metadata
+	return md5sum, metadata, file_size
 }
 
 func addSong(song song) {
@@ -215,8 +222,9 @@ func addSong(song song) {
 		Year,
 		Format,
 		FileType,
-		Path
-	) values(?, ?, ?, ?, ?, ?, ?, ?, ?)
+		Path,
+		Size
+	) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	stmt, err := db.Prepare(query)
@@ -233,7 +241,8 @@ func addSong(song song) {
 		song.Year,
 		song.Format,
 		song.FileType,
-		song.Path)
+		song.Path,
+		song.Size)
 	checkErr(err2)
 }
 
@@ -256,9 +265,9 @@ func createTable() {
 		Year VARCHAR(64) NULL,
 		Format VARCHAR(64) NULL,
 		FileType VARCHAR(64) NULL,
-		Path VARCHAR(64) NOT NULL);
+		Path VARCHAR(64) NOT NULL,
+		Size INTEGER NOT NULL);
 	`
-
 	_, err := db.Exec(query)
 	checkErr(err)
 }
