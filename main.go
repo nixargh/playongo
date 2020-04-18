@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -20,7 +21,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-var version string = "0.3.0"
+var version string = "0.4.0"
 
 var musicDir string
 var static string = "/static/"
@@ -56,21 +57,49 @@ func runRouter() {
 	log.Fatal(http.ListenAndServe(":12345", router))
 }
 
-func getSongs(attribute string, value string) []song {
-	fmt.Printf("Quering for songs with attribute %q and value %q.\n", attribute, value)
-	var query string
+func findRealAttribute(attribute string) string {
+	fmt.Printf("Looking for a real name of attribute: %q.\n", attribute)
+	var realAttribute string
 
-	if attribute == "" {
-		query = "SELECT ID, Name, Artist, Album, Genre, Year, Format, FileType, Path FROM songs;"
-	} else {
-		query = fmt.Sprintf("SELECT ID, Name, Artist, Album, Genre, Year, Format, FileType, Path FROM songs where %s='%s'", attribute, value)
+	var possibleAttrs [3]string
+	possibleAttrs[0] = attribute
+	possibleAttrs[1] = strings.ToUpper(attribute)
+	possibleAttrs[2] = strings.Title(attribute)
+
+	s := song{}
+	sv := reflect.TypeOf(s)
+	for _, fieldName := range possibleAttrs {
+		//fmt.Printf("Checking attribute: %q.\n", fieldName)
+		field, found := sv.FieldByName(fieldName)
+		if !found {
+			continue
+		}
+		realAttribute = field.Name
+		break
 	}
 
-	rows, err := db.Query(query)
+	fmt.Printf("Real attribute: %q.\n", realAttribute)
+	return realAttribute
+}
+
+func getSongs(attribute string, value string) []song {
+	songs := make([]song, 0)
+
+	fmt.Printf("Looking for song(s) with attribute %q = %q.\n", attribute, value)
+
+	var rows *sql.Rows
+	var err error
+
+	if attribute == "" {
+		fmt.Printf("Attribute is empty so returning all songs.\n")
+		rows, err = db.Query("SELECT ID, Name, Artist, Album, Genre, Year, Format, FileType, Path FROM songs")
+	} else {
+		query := fmt.Sprintf("SELECT ID, Name, Artist, Album, Genre, Year, Format, FileType, Path FROM songs where %s = ?", attribute)
+		rows, err = db.Query(query, value)
+	}
+
 	checkErr(err)
 	defer rows.Close()
-
-	var result []song
 
 	for rows.Next() {
 		song := song{}
@@ -85,32 +114,40 @@ func getSongs(attribute string, value string) []song {
 			&song.FileType,
 			&song.Path)
 		checkErr(err2)
-		result = append(result, song)
+		songs = append(songs, song)
 	}
-	return result
+
+	fmt.Printf("Found number of songs: %d.", len(songs))
+	for _, song := range songs {
+		fmt.Printf("Found song: %q.\n", song)
+	}
+	return songs
 }
 
 func getSongByID(w http.ResponseWriter, req *http.Request) {
+	var songs []song
+
 	params := mux.Vars(req)
 	id := params["id"]
 	fmt.Printf("Requested ID: %q.\n", id)
-	songs := getSongs("ID", id)
-	for _, song := range songs {
-		fmt.Printf("Found song: %q.\n", song)
-		json.NewEncoder(w).Encode(song)
-	}
-	json.NewEncoder(w).Encode(&song{})
+	songs = getSongs("ID", id)
+	json.NewEncoder(w).Encode(&songs)
 }
 
 func getSongByAttribute(w http.ResponseWriter, req *http.Request) {
+	var songs []song
 	params := mux.Vars(req)
 	fmt.Printf("Requested attribute: %q.\n", params)
-	songs := getSongs(params["attribute"], params["value"])
-	for _, song := range songs {
-		fmt.Printf("Found song: %q.\n", song)
-		json.NewEncoder(w).Encode(song)
+
+	realAttribute := findRealAttribute(params["attribute"])
+	if realAttribute != "" {
+		songs = getSongs(realAttribute, params["value"])
+		json.NewEncoder(w).Encode(&songs)
+	} else {
+		err := "Bad request: Attribute hasn't been found.\n"
+		fmt.Printf(err)
+		http.Error(w, err, http.StatusBadRequest)
 	}
-	json.NewEncoder(w).Encode(&song{})
 }
 
 func getSongEndpoint(w http.ResponseWriter, req *http.Request) {
