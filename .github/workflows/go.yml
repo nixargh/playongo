@@ -32,11 +32,20 @@ jobs:
 
     - name: Build
       run: go build -v .
+    - name: Upload binary
+      uses: actions/upload-artifact@v1
+      with:
+        name: playongo
+        path: playongo
   publish:
     name: Publish
     needs: [build]
     runs-on: ubuntu-latest
     steps:
+    - name: Download binary
+      uses: actions/download-artifact@v1
+      with:
+        name: playongo
     - name: Create Release
       id: create_release
       uses: actions/create-release@v1
