@@ -134,7 +134,7 @@ func scanMedia() {
 	for songFile := range songsList {
 		wg.Add(1)
 		fmt.Printf("Song file: %q.\n", songFile)
-		readMeta(songFile, &wg, &mux)
+		go readMeta(songFile, &wg, &mux)
 	}
 	wg.Wait()
 
