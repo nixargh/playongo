@@ -2,7 +2,7 @@
 Music Library Server
 
 ## Build
-`go get`
+`go get -d`
 
 `go build`
 
