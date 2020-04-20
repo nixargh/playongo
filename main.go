@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,7 +38,7 @@ type song struct {
 	Format   tag.Format   `json:"format,omitempty"`
 	FileType tag.FileType `json:"filetype,omitempty"`
 	Path     string       `json:"path,omitempty"`
-	Size     int64
+	Size     int64        `json:"size,omitempty"`
 }
 
 // Router part
@@ -133,7 +134,7 @@ func scanMedia() {
 	for songFile := range songsList {
 		wg.Add(1)
 		fmt.Printf("Song file: %q.\n", songFile)
-		go readMeta(songFile, &wg, &mux)
+		readMeta(songFile, &wg, &mux)
 	}
 	wg.Wait()
 
@@ -155,7 +156,8 @@ func readMeta(path string, wg *sync.WaitGroup, mux *sync.Mutex) {
 	defer wg.Done()
 
 	relativePath := filepath.Clean(strings.Replace(path, musicDir, static, 1))
-	relativePathNoSpaces := strings.Replace(relativePath, " ", "%20", -1)
+	//relativePathNoSpaces := strings.Replace(relativePath, " ", "%20", -1)
+	relativePathNoSpaces := &url.URL{Path: relativePath}
 
 	md5sum, metadata, file_size := readFileMetadata(path)
 	if metadata != nil {
@@ -172,7 +174,7 @@ func readMeta(path string, wg *sync.WaitGroup, mux *sync.Mutex) {
 			Year:     metadata.Year(),
 			Format:   metadata.Format(),
 			FileType: metadata.FileType(),
-			Path:     relativePathNoSpaces,
+			Path:     relativePathNoSpaces.String(),
 			Size:     file_size})
 		mux.Unlock()
 	} else {
@@ -186,9 +188,9 @@ func readFileMetadata(file string) (string, tag.Metadata, int64) {
 	fmt.Printf("Reading file metadata: %q. ", file)
 
 	f, err := os.Open(file)
-    file_stat, err := f.Stat()
-    file_size := file_stat.Size()
-    fmt.Printf(" Size: %v ", file_size)
+	file_stat, err := f.Stat()
+	file_size := file_stat.Size()
+	fmt.Printf(" Size: %v ", file_size)
 	if err != nil {
 		fmt.Printf("Error loading file: %q.\n", err)
 	}
@@ -206,7 +208,7 @@ func readFileMetadata(file string) (string, tag.Metadata, int64) {
 		log.Fatal(err)
 	}
 	md5sum := hex.EncodeToString(h.Sum(nil))
-    fmt.Printf("\n")
+	fmt.Printf("\n")
 
 	return md5sum, metadata, file_size
 }
