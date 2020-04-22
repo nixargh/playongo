@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2020-04-22
+### Added
+- `main.go` song files size.
+- `./.github/workflows/go.yml` CI that creates releases and builds an executable for it.
+
 ## [0.4.0] - 2020-04-18
 ### Changed
 - `main.go` validate *value* from request using *prepared statement*.

@@ -22,7 +22,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-var version string = "0.4.0"
+var version string = "0.5.0"
 
 var musicDir string
 var static string = "/static/"
